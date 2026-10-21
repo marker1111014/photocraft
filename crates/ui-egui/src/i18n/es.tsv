@@ -4313,7 +4313,6 @@ navigator	Zoom	Zoom
 	Use	Usar
 	In Front	Delante
 	Behind	Detrás
-
 # DDS Options (#1327)
 	DDS Options	Opciones de DDS
 	Generate Mipmaps	Generar mipmaps
@@ -4343,3 +4342,4 @@ navigator	Zoom	Zoom
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Process Open Images	Procesar imágenes abiertas

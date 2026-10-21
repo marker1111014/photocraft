@@ -4059,7 +4059,6 @@ curves	Smooth	Згладити
 	Use	Використати
 	In Front	Спереду
 	Behind	Ззаду
-
 # DDS Options (#1327)
 	DDS Options	Параметри DDS
 	Compression	Стиснення
@@ -4090,3 +4089,5 @@ curves	Smooth	Згладити
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Process Open Images	Обробити відкриті зображення
+	Apply to All	Застосувати до всіх

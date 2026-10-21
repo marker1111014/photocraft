@@ -3364,7 +3364,6 @@ curves	Smooth	Haluskan
 	Use	Gunakan
 	In Front	Di Depan
 	Behind	Di Belakang
-
 # DDS Options (#1327)
 	DDS Options	Opsi DDS
 	Compression	Kompresi
@@ -3395,3 +3394,5 @@ curves	Smooth	Haluskan
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Process Open Images	Proses Gambar Terbuka
+	Apply to All	Terapkan ke Semua
