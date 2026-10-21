@@ -4030,10 +4030,10 @@ curves	Smooth	Vloeiend maken
 	Use	Gebruiken
 	In Front	Voor
 	Behind	Achter
-
 # DDS Options (#1327)
 	DDS Options	DDS-opties
 	Generate Mipmaps	Mipmaps genereren
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+	Process Open Images	Geopende afbeeldingen verwerken

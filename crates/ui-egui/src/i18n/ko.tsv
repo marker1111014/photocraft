@@ -3456,7 +3456,6 @@ curves	Smooth	매끄럽게
 	In Front	앞
 	Behind	뒤
 	Blend	혼합
-
 # DDS Options (#1327)
 	DDS Options	DDS 옵션
 	Compression	압축
@@ -3464,3 +3463,5 @@ curves	Smooth	매끄럽게
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 어댑터
+	Process Open Images	열린 이미지 처리
+	Apply to All	모두 적용

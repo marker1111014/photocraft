@@ -3947,7 +3947,6 @@ curves	Smooth	スムーズ
 	Use	使用
 	In Front	前面
 	Behind	背面
-
 # DDS Options (#1327)
 	DDS Options	DDS オプション
 	Compression	圧縮
@@ -3955,3 +3954,5 @@ curves	Smooth	スムーズ
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター
+	Process Open Images	開いている画像を処理
+	Apply to All	すべてに適用

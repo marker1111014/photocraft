@@ -3279,7 +3279,6 @@ curves	Smooth	Lisser
 	Use	Utiliser
 	In Front	Devant
 	Behind	Derrière
-
 # DDS Options (#1327)
 	DDS Options	Options DDS
 	Compression	Compression
@@ -3287,3 +3286,5 @@ curves	Smooth	Lisser
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptateur GPU
+	Process Open Images	Traiter les images ouvertes
+	Apply to All	Appliquer à tous

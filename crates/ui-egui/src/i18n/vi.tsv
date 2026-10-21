@@ -3758,7 +3758,6 @@ curves	Smooth	Làm mượt
 	Use	Dùng
 	In Front	Phía trước
 	Behind	Phía sau
-
 # DDS Options (#1327)
 	DDS Options	Tùy chọn DDS
 	Compression	Nén
@@ -3766,3 +3765,5 @@ curves	Smooth	Làm mượt
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Bộ điều hợp GPU
+	Process Open Images	Xử lý hình ảnh đang mở
+	Apply to All	Áp dụng cho tất cả

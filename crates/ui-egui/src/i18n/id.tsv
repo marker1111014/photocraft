@@ -3266,7 +3266,6 @@ curves	Smooth	Haluskan
 	Use	Gunakan
 	In Front	Di Depan
 	Behind	Di Belakang
-
 # DDS Options (#1327)
 	DDS Options	Opsi DDS
 	Compression	Kompresi
@@ -3274,3 +3273,5 @@ curves	Smooth	Haluskan
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptor GPU
+	Process Open Images	Proses Gambar Terbuka
+	Apply to All	Terapkan ke Semua

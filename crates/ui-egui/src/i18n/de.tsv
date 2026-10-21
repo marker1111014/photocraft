@@ -3275,7 +3275,6 @@ curves	Smooth	Glätten
 	In Front	Davor
 	Behind	Dahinter
 	Blend	Mischen
-
 # DDS Options (#1327)
 	DDS Options	DDS-Optionen
 	Compression	Komprimierung
@@ -3283,3 +3282,5 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+	Process Open Images	Geöffnete Bilder verarbeiten
+	Apply to All	Auf alle anwenden

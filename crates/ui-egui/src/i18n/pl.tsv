@@ -3869,7 +3869,6 @@ curves	Smooth	Wygładź
 	Use	Użyj
 	In Front	Z przodu
 	Behind	Z tyłu
-
 # DDS Options (#1327)
 	DDS Options	Opcje DDS
 	Compression	Kompresja
@@ -3877,3 +3876,5 @@ curves	Smooth	Wygładź
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
+	Process Open Images	Przetwarzaj otwarte obrazy
+	Apply to All	Zastosuj do wszystkich
