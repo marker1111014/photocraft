@@ -224,3 +224,81 @@ fn crowded_tabs_keep_their_whole_names_and_the_menu_lists_every_document() {
         }
     }
 }
+
+#[test]
+fn ctrl_tab_switches_document_when_menu_bar_is_focused() {
+    let mut h = harness(2, ThemeKind::Pro);
+    assert_eq!(h.state().session.active_index(), Some(1));
+
+    // Tap Alt to put keyboard focus on the menu bar
+    h.key_down(egui::Key::AltLeft);
+    h.run_steps(2);
+    h.key_up(egui::Key::AltLeft);
+    h.run_steps(3);
+
+    assert!(crate::menu_keys::is_focused(&h.ctx), "menu bar is focused by Alt tap");
+
+    // Press Ctrl+Tab
+    h.key_press_modifiers(ctrl(), egui::Key::Tab);
+    h.run_steps(2);
+
+    assert_eq!(h.state().session.active_index(), Some(0), "Ctrl+Tab must switch document even when menu bar is focused");
+}
+
+#[test]
+fn ctrl_tab_switches_document_when_menu_is_open() {
+    let mut h = harness(2, ThemeKind::Pro);
+    assert_eq!(h.state().session.active_index(), Some(1));
+
+    // Open the Filter menu
+    if let Some(btn) = h.query_by_label("Filter") {
+        btn.click();
+        h.run_steps(2);
+    }
+    assert!(crate::menu_nav::is_open(&h.ctx), "menu is open");
+
+    // Press Ctrl+Tab
+    h.key_press_modifiers(ctrl(), egui::Key::Tab);
+    h.run_steps(2);
+
+    assert_eq!(h.state().session.active_index(), Some(0), "Ctrl+Tab switches document and closes open menu");
+    assert!(!crate::menu_nav::is_open(&h.ctx), "menu closed on document switch");
+}
+
+#[test]
+fn ctrl_tab_switches_document_after_lasso_and_filter() {
+    let mut h = harness(2, ThemeKind::Pro);
+    assert_eq!(h.state().session.active_index(), Some(1));
+
+    h.state_mut().ui.tool = crate::state::Tool::Lasso;
+    h.run_steps(2);
+
+    // Lasso selection extending into pasteboard outside canvas
+    let rect = h.state().last_canvas_rect;
+    let center = rect.center();
+    let outside = egui::pos2(rect.max.x + 50.0, center.y);
+
+    h.event(egui::Event::PointerMoved(center));
+    h.event(egui::Event::PointerButton { pos: center, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.event(egui::Event::PointerMoved(outside));
+    h.event(egui::Event::PointerMoved(center));
+    h.event(egui::Event::PointerButton { pos: center, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
+
+    // Apply pixelate mosaic filter dialog
+    crate::filter_dialog::open(h.state_mut(), "filter.pixelate.mosaic");
+    h.run_steps(2);
+    if let Some(ok) = h.query_by_label("OK") {
+        ok.click();
+    } else {
+        h.key_press(egui::Key::Enter);
+    }
+    h.run_steps(2);
+
+    // Press Ctrl+Tab
+    h.key_press_modifiers(ctrl(), egui::Key::Tab);
+    h.run_steps(2);
+
+    assert_eq!(h.state().session.active_index(), Some(0), "Ctrl+Tab switches document after lasso and filter");
+}
+

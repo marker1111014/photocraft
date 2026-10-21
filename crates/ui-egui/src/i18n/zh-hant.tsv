@@ -2764,6 +2764,7 @@ curves	Smooth	平滑
 	Content-Aware Fill	內容感知填滿
 # Batch / Image Processor
 	Include All Subfolders	包含所有子資料夾
+	Process Open Images	使用開啟的影像
 	Auto Add/Delete	自動增加/刪除
 
 # Native Windows printing qualification

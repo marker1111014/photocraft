@@ -382,3 +382,18 @@ fn batch_default_quality_keeps_lossless_webp_and_existing_jpeg_bytes() {
         }
     }
 }
+
+#[test]
+fn image_processor_dialog_toggles_process_open_images() {
+    let _gpu = photocraft_testkit::gpu_lock();
+    let mut h = harness();
+    open(&mut h, "file.scripts.imageProcessor");
+    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["useOpenDocuments"], json!(false));
+    h.get_by_label("Process Open Images").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["useOpenDocuments"], json!(true));
+    h.get_by_label("Process Open Images").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["useOpenDocuments"], json!(false));
+}
+
