@@ -1172,31 +1172,72 @@ fn same_format_takes_the_file_names_extension() {
     assert_eq!(same_format("/in/.hidden"), "png");
 }
 
-fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+pub(crate) enum BatchItem<'a> {
+    File { path: &'a str, out: String },
+    Doc { name: &'a str, path: Option<&'a str>, doc: &'a Document, out: String },
+}
+
+fn process_items<'a>(items: impl IntoIterator<Item = BatchItem<'a>>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for (path, out) in outputs {
+    for item in items {
+        let (display_name, out) = match &item {
+            BatchItem::File { path, out } => (*path, out.as_str()),
+            BatchItem::Doc { name, path, out, .. } => (path.unwrap_or(*name), out.as_str()),
+        };
         let r = (|| -> Result<()> {
-            written.check(&out).map_err(EngineError::Other)?;
-            let bytes = read_file(path)?;
+            written.check(out).map_err(EngineError::Other)?;
             let mut scratch = Session::new();
-            let doc = import(&file_name(path), &bytes)?;
-            scratch.add_document(doc, Some(path.to_string()));
+            match item {
+                BatchItem::File { path, .. } => {
+                    let bytes = read_file(path)?;
+                    let doc = import(&file_name(path), &bytes)?;
+                    scratch.add_document(doc, Some(path.to_string()));
+                }
+                BatchItem::Doc { name, path, doc, .. } => {
+                    let mut doc_clone = (*doc).clone();
+                    doc_clone.name = name.to_string();
+                    scratch.add_document(doc_clone, path.map(str::to_string));
+                }
+            }
             f(&mut scratch)?;
             let d = scratch.active().ok_or(EngineError::NoDocument)?;
-            save_doc(&d.doc, &out, save)?;
+            save_doc(&d.doc, out, save)?;
             Ok(())
         })();
         match r {
             Ok(()) => {
-                written.record(&out, path);
-                files.push(out);
+                written.record(out, display_name);
+                files.push(out.to_string());
             }
-            Err(e) => errors.push(json!({"file": path, "error": e.to_string()})),
+            Err(e) => errors.push(json!({"file": display_name, "error": e.to_string()})),
         }
     }
     json!({"files": files, "errors": errors})
+}
+
+fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+    process_items(outputs.into_iter().map(|(path, out)| BatchItem::File { path, out }), save, f)
+}
+
+fn process_open_docs(s: &Session, output: &str, format: &str, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+    let items = s.documents().iter().map(|d| {
+        let name = &d.doc.name;
+        let ext = if format == "same" {
+            d.path.as_deref().and_then(|p| p.rsplit('.').next()).unwrap_or("png").to_ascii_lowercase()
+        } else {
+            format.trim_start_matches('.').to_ascii_lowercase()
+        };
+        let out = join(output, &format!("{}.{ext}", stem(name)));
+        BatchItem::Doc {
+            name,
+            path: d.path.as_deref(),
+            doc: &d.doc,
+            out,
+        }
+    });
+    process_items(items, save, f)
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
@@ -1232,7 +1273,11 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }
     let output = str_param(p, "output", cmd)?.to_string();
-    let inputs = batch_inputs_tree(p, cmd, &output)?;
+    let use_open = match p.get("useOpenDocuments") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
+    };
     let format = p.get("format").and_then(Value::as_str).unwrap_or("same").to_string();
     // Steps that call another action play it from the caller's actions; the playback stack comes
     // along so an action that batches itself is caught as a recursive call.
@@ -1249,7 +1294,6 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
-    let names = batch_naming::plan(&inputs, &output, &format, p)?;
     let save = SaveOpts::from_params(s, p, cmd)?;
     let run = |scratch: &mut Session| {
         scratch.actions = actions.clone();
@@ -1262,24 +1306,52 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(())
     };
-    let r = match names {
-        Some(names) => process_outputs(inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
-        None => process_tree(&inputs, &output, &format, save, "", &run),
-    };
-    Ok(r)
+    if use_open {
+        if s.documents().is_empty() {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: "no open documents to process".into() });
+        }
+        let inputs: Vec<BatchInput> = s.documents().iter().map(|d| BatchInput { path: d.doc.name.clone(), rel_dir: String::new() }).collect();
+        let names = batch_naming::plan(&inputs, &output, &format, p)?;
+        let r = match names {
+            Some(names) => {
+                let items = s.documents().iter().zip(names).map(|(d, out)| BatchItem::Doc {
+                    name: &d.doc.name,
+                    path: d.path.as_deref(),
+                    doc: &d.doc,
+                    out,
+                });
+                process_items(items, save, &run)
+            }
+            None => process_open_docs(s, &output, &format, save, &run),
+        };
+        Ok(r)
+    } else {
+        let inputs = batch_inputs_tree(p, cmd, &output)?;
+        let names = batch_naming::plan(&inputs, &output, &format, p)?;
+        let r = match names {
+            Some(names) => process_outputs(inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
+            None => process_tree(&inputs, &output, &format, save, "", &run),
+        };
+        Ok(r)
+    }
 }
 
 fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
     let output = str_param(p, "output", cmd)?.to_string();
-    let inputs = batch_inputs_tree(p, cmd, &output)?;
+    let use_open = match p.get("useOpenDocuments") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
+    };
     let format = p.get("format").and_then(Value::as_str).unwrap_or("jpg").to_string();
     let fit = match (size_param(p, "width"), size_param(p, "height")) {
         (None, None) => None,
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_tree(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch| {
+    let save = SaveOpts::from_params(s, p, cmd)?.or_quality(8.0);
+    let run = |scratch: &mut Session| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
@@ -1287,8 +1359,17 @@ fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
             fit_image(scratch, fp)?;
         }
         Ok(())
-    });
-    Ok(r)
+    };
+    if use_open {
+        if s.documents().is_empty() {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: "no open documents to process".into() });
+        }
+        Ok(process_open_docs(s, &output, &format, save, &run))
+    } else {
+        let inputs = batch_inputs_tree(p, cmd, &output)?;
+        let r = process_tree(&inputs, &output, &format, save, "", &run);
+        Ok(r)
+    }
 }
 
 fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1778,7 +1859,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths]?,"useOpenDocuments":bool=false,"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1787,7 +1868,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"input":folder|[paths]?,"useOpenDocuments":bool=false,"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             image_processor
         ),

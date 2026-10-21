@@ -363,6 +363,33 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
     raw.events = out;
 }
 
+/// Document switching keys (Ctrl+Tab / Ctrl+Shift+Tab) are application-level tab switchers.
+/// In Photoshop and modern window managers, they switch documents even when a menu is open,
+/// the menu bar has keyboard focus, or a dropdown is open.
+fn switch_document_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    const COMMANDS: [(&str, &str); 2] = [
+        ("window.nextDocument", "Ctrl+Tab"),
+        ("window.previousDocument", "Ctrl+Shift+Tab"),
+    ];
+    for (id, default_sc) in COMMANDS {
+        let main = effective_shortcut(app, id, Some(default_sc));
+        let keys: Vec<KeyboardShortcut> =
+            main.into_iter().chain(effective_alternates(app, id)).filter_map(|k| parse(&k)).collect();
+        if keys.iter().any(|sc| consume(ctx, sc)) {
+            ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+            egui::Popup::close_all(ctx);
+            crate::menu_nav::clear(ctx);
+            crate::menu_keys::clear(ctx);
+            crate::widgets::dropdown_list_clear(ctx);
+            if crate::menus::is_enabled(app, id) {
+                let _ = crate::menus::invoke(app, ctx, id, json!({}));
+            }
+            return true;
+        }
+    }
+    false
+}
+
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // A held tool letter released: a temporary tool gives the previous one back (#2672).
     crate::spring_tools::tick(app, ctx);
@@ -378,6 +405,11 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // A foreground save (Save in Background off, #6207) blocks the app until the file is written;
     // only Esc reaches it, to cancel while it still encodes (see `jobs_ui::tick`).
     if crate::jobs_ui::foreground_save(app).is_some() {
+        return;
+    }
+    // Universal tab switching (Ctrl+Tab / Ctrl+Shift+Tab) works before menu navigation or
+    // menu bar keyboard focus early-returns.
+    if app.ui.dialogs.is_empty() && app.discard.is_none() && switch_document_keys(app, ctx) {
         return;
     }
     // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu; so does the menu bar
