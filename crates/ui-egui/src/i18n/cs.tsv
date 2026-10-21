@@ -4097,7 +4097,6 @@ cameraRaw	Dehaze	Odstranění oparu
 	Use	Použít
 	In Front	Vpředu
 	Behind	Vzadu
-
 # DDS Options (#1327)
 	DDS Options	Možnosti DDS
 	Generate Mipmaps	Generovat mipmapy
@@ -4127,3 +4126,5 @@ cameraRaw	Dehaze	Odstranění oparu
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Process Open Images	Zpracovat otevřené obrázky
+	Apply to All	Použít na vše

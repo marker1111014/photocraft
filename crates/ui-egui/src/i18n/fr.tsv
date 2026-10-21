@@ -3362,7 +3362,6 @@ curves	Smooth	Lisser
 	Use	Utiliser
 	In Front	Devant
 	Behind	Derrière
-
 # DDS Options (#1327)
 	DDS Options	Options DDS
 	Compression	Compression
@@ -4424,3 +4423,5 @@ shape	Appearance	Apparence
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Process Open Images	Traiter les images ouvertes
+	Apply to All	Appliquer à tous

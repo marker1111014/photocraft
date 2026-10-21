@@ -14,6 +14,13 @@ use crate::widgets::{ButtonRole, DialogButton};
 
 const EXIT: &str = "file.exit";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Save,
+    Discard,
+    Cancel,
+}
+
 /// An action waiting on the user, and the dirty documents still to ask about.
 pub struct Prompt {
     id: String,
@@ -23,6 +30,10 @@ pub struct Prompt {
     docs: Vec<DocId>,
     /// The document whose question has already put keyboard focus on its default answer.
     focused: Option<DocId>,
+    /// Whether to apply the chosen answer to all remaining dirty documents.
+    apply_to_all: bool,
+    /// Choice to automatically apply to remaining documents once set.
+    auto_answer: Option<Answer>,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -71,7 +82,15 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     if docs.is_empty() {
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, focused: None };
+    let prompt = Prompt {
+        id: id.to_string(),
+        params: params.clone(),
+        target,
+        docs,
+        focused: None,
+        apply_to_all: false,
+        auto_answer: None,
+    };
     match &app.discard {
         None => ask(app, prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -206,6 +225,11 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
     if saved.is_ok() && app.file_dialog_open() {
         let ctx = ctx.clone();
         app.after_file_dialog(move |app, saved| {
+            if saved.as_ref().err().is_some_and(|e| e == crate::file_dialog::CANCELLED)
+                && let Some(p) = app.discard.as_mut()
+            {
+                p.auto_answer = None;
+            }
             let saved = saved.map_err(couldnt_save)?;
             saved_document(app, &ctx, doc);
             Ok(saved)
@@ -258,14 +282,58 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         return;
     }
-    let Some(p) = &app.discard else { return };
-    let Some(&doc) = p.docs.first() else { return };
-    let (exits, reverts) = (p.id == EXIT, p.id == "file.revert");
+    let (exits, reverts, doc, focus, show_apply_to_all, mut apply_to_all, auto_answer) = {
+        let Some(p) = app.discard.as_ref() else { return };
+        let Some(&doc) = p.docs.first() else { return };
+        let auto_answer = p.auto_answer;
+        let (exits, reverts) = (p.id == EXIT, p.id == "file.revert");
+        let focus = p.focused != Some(doc);
+        let show_apply_to_all = !reverts && (p.docs.len() > 1 || p.apply_to_all);
+        let apply_to_all = p.apply_to_all;
+        (exits, reverts, doc, focus, show_apply_to_all, apply_to_all, auto_answer)
+    };
+    if let Some(p) = app.discard.as_mut() {
+        p.focused = Some(doc);
+    }
     let Some(name) = index_of(app, doc).map(|i| app.session.documents()[i].doc.name.clone()) else {
-        // Closed by something else while the prompt was up: nothing left to ask about.
         advance(app, ctx);
         return;
     };
+
+    if let Some(auto) = auto_answer {
+        match auto {
+            Answer::Cancel => {
+                app.discard = None;
+            }
+            Answer::Discard => {
+                while let Some(_d) = app.discard.as_ref().and_then(|p| p.docs.first().copied()) {
+                    advance(app, ctx);
+                    if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                        break;
+                    }
+                }
+            }
+            Answer::Save => {
+                while let Some(&next_doc) = app.discard.as_ref().and_then(|p| p.docs.first()) {
+                    if save(app, ctx, next_doc) {
+                        advance(app, ctx);
+                        if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                            break;
+                        }
+                    } else {
+                        if !app.file_dialog_open() && !app.saving() && !app.save_options_open()
+                            && let Some(p) = app.discard.as_mut()
+                        {
+                            p.auto_answer = None;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     let (title, message) = if reverts {
         ("Revert", crate::i18n::fmt(tl!("Revert “{name}” to the last saved version? Your changes will be lost."), &[("name", &name)]))
     } else {
@@ -276,12 +344,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         };
         (tl!("Unsaved changes"), crate::i18n::fmt(template, &[("name", &name)]))
     };
-    // Each question comes up with its default answer focused, as in Photoshop: the arrow keys then
-    // move between the answers and Enter presses the focused one (#6441).
-    let focus = p.focused != Some(doc);
-    if let Some(p) = app.discard.as_mut() {
-        p.focused = Some(doc);
-    }
+
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and
     // Linux) ask Yes / No / Cancel with Y, N and Esc, as Photoshop does there; macOS asks
@@ -304,6 +367,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let labels = button_labels(mac, &buttons.iter().map(|b| (b.1, b.2)).collect::<Vec<_>>());
     let row: Vec<DialogButton> =
         buttons.iter().zip(&labels).map(|(b, label)| DialogButton::new(b.0, label, b.3).focus(focus && b.0 == ButtonRole::Default)).collect();
+
+    if show_apply_to_all && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::A)) {
+        apply_to_all = !apply_to_all;
+        if let Some(p) = app.discard.as_mut() {
+            p.apply_to_all = apply_to_all;
+        }
+    }
+
     let modal = egui::Modal::new(egui::Id::new("discard-prompt")).show(ctx, |ui| {
         ui.set_max_width(420.0);
         ui.label(egui::RichText::new(tl!(&title)).font(crate::theme::semibold(15.0)));
@@ -311,7 +382,17 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         crate::widgets::hairline(ui);
         ui.add_space(8.0);
         ui.label(message);
-        ui.add_space(12.0);
+        ui.add_space(10.0);
+        if show_apply_to_all {
+            if ui.checkbox(&mut apply_to_all, tl!("Apply to All")).changed()
+                && let Some(p) = app.discard.as_mut()
+            {
+                p.apply_to_all = apply_to_all;
+            }
+            ui.add_space(10.0);
+        } else {
+            ui.add_space(2.0);
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             if let Some(role) = crate::widgets::dialog_buttons(ui, &row) {
@@ -333,11 +414,47 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// Acts on the answer about `doc`, the document the prompt is asking about.
 fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answer) {
+    let apply_all = app.discard.as_ref().is_some_and(|p| p.apply_to_all);
+    if apply_all && matches!(answer, Answer::Save | Answer::Discard)
+        && let Some(p) = app.discard.as_mut()
+    {
+        p.auto_answer = Some(answer);
+    }
     match answer {
         Answer::Cancel => app.discard = None,
-        Answer::Discard => advance(app, ctx),
-        Answer::Save if save(app, ctx, doc) => advance(app, ctx),
-        Answer::Save => {}
+        Answer::Discard => {
+            advance(app, ctx);
+            if apply_all {
+                while let Some(_d) = app.discard.as_ref().and_then(|p| p.docs.first().copied()) {
+                    advance(app, ctx);
+                    if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                        break;
+                    }
+                }
+            }
+        }
+        Answer::Save => {
+            if save(app, ctx, doc) {
+                advance(app, ctx);
+                if apply_all {
+                    while let Some(&next_doc) = app.discard.as_ref().and_then(|p| p.docs.first()) {
+                        if save(app, ctx, next_doc) {
+                            advance(app, ctx);
+                            if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                                break;
+                            }
+                        } else {
+                            if !app.file_dialog_open() && !app.saving() && !app.save_options_open()
+                                && let Some(p) = app.discard.as_mut()
+                            {
+                                p.auto_answer = None;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -352,12 +469,19 @@ pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
     let doc = *p.docs.first()?;
     let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
     let reverts = p.id == "file.revert";
-    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel"], "save") };
+    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel", "saveAll", "dontSaveAll"], "save") };
     Some(json!({
         "id": CONTROL_ID,
         "kind": "unsavedChanges",
         "title": if reverts { "Revert" } else { "Unsaved changes" },
-        "fields": {"command": p.id, "document": name, "remaining": p.docs.len(), "choices": choices, "default": default},
+        "fields": {
+            "command": p.id,
+            "document": name,
+            "remaining": p.docs.len(),
+            "choices": choices,
+            "default": default,
+            "applyToAll": p.apply_to_all,
+        },
     }))
 }
 
@@ -377,24 +501,24 @@ pub fn answer_control(app: &mut PhotocraftApp, ctx: &egui::Context, choice: &str
         return Err("the unsaved-changes prompt is waiting for a save to finish".into());
     }
     let reverts = app.discard.as_ref().is_some_and(|p| p.id == "file.revert");
-    let answer = match choice {
-        "save" if !reverts => Answer::Save,
-        "dontSave" => Answer::Discard,
-        "cancel" => Answer::Cancel,
+    let (answer, apply_to_all) = match choice {
+        "save" if !reverts => (Answer::Save, false),
+        "saveAll" if !reverts => (Answer::Save, true),
+        "dontSave" => (Answer::Discard, false),
+        "dontSaveAll" => (Answer::Discard, true),
+        "cancel" => (Answer::Cancel, false),
         other => {
-            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave or cancel" };
+            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave, saveAll, dontSaveAll or cancel" };
             return Err(format!("unknown choice `{other}`: {choices}"));
         }
     };
+    if apply_to_all
+        && let Some(p) = app.discard.as_mut()
+    {
+        p.apply_to_all = true;
+    }
     apply(app, ctx, doc, answer);
     Ok(json!({"open": app.discard.is_some(), "fileDialog": app.file_dialog_open()}))
-}
-
-#[derive(Clone, Copy)]
-enum Answer {
-    Save,
-    Discard,
-    Cancel,
 }
 
 /// macOS keeps the plain button wording even though the keyboard shortcuts still work.
@@ -651,18 +775,24 @@ mod tests {
         v.into_iter().map(|(_, l)| l).collect()
     }
 
-    /// Tab walks `labels` left to right from the focused default answer, `labels[default]`, and
-    /// wraps; Shift+Tab steps back.
-    fn tab_walks(h: &mut Prompted, labels: [&str; 3], default: usize) {
-        assert_eq!(focused(h, &labels), Some(labels[default]));
-        for step in 1..=3 {
+    /// Tab walks the dialog controls from the focused default answer, and wraps; Shift+Tab steps back.
+    fn tab_walks(h: &mut Prompted, buttons: [&str; 3], default: usize) {
+        assert_eq!(focused(h, &buttons), Some(buttons[default]));
+        let cycle = if default == 0 {
+            vec![buttons[1], buttons[2], "Apply to All", buttons[0]]
+        } else {
+            vec!["Apply to All", buttons[0], buttons[1], buttons[2]]
+        };
+        let all = [buttons[0], buttons[1], buttons[2], "Apply to All"];
+        for expected in &cycle {
             h.key_press(Key::Tab);
             h.run_steps(2);
-            assert_eq!(focused(h, &labels), Some(labels[(default + step) % 3]));
+            assert_eq!(focused(h, &all), Some(*expected));
         }
         h.key_press_modifiers(egui::Modifiers::SHIFT, Key::Tab);
         h.run_steps(2);
-        assert_eq!(focused(h, &labels), Some(labels[(default + 2) % 3]));
+        let prev = cycle[cycle.len() - 2];
+        assert_eq!(focused(h, &all), Some(prev));
     }
 
     fn docs_left(h: &Prompted) -> Option<usize> {
@@ -1089,5 +1219,59 @@ mod tests {
         app.allow_close = true;
         assert!(cancels_only(&window_close_commands(&mut app)));
         assert_eq!(quits.get(), 2);
+    }
+
+    #[test]
+    fn close_all_with_apply_to_all_no_discards_all_documents_immediately() {
+        let mut app = app_with_docs(3);
+        let ctx = egui::Context::default();
+        make_dirty(&mut app, 0);
+        make_dirty(&mut app, 1);
+        make_dirty(&mut app, 2);
+        crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
+        assert!(app.discard.is_some());
+        assert_eq!(app.discard.as_ref().unwrap().docs.len(), 3);
+        // Answering dontSave with apply_to_all closes all documents
+        answer_control(&mut app, &ctx, "dontSaveAll").unwrap();
+        assert!(app.discard.is_none());
+        assert!(app.session.documents().is_empty());
+    }
+
+    #[test]
+    fn close_all_with_apply_to_all_save_saves_and_closes_all() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let mut app = app_with_docs(3);
+        let ctx = egui::Context::default();
+        for i in 0..3 {
+            app.session.set_active(i);
+            make_dirty(&mut app, i);
+            app.session.active_mut().unwrap().path = Some(format!("/tmp/doc{i}.psd"));
+        }
+        let writes = Arc::new(AtomicUsize::new(0));
+        let w = writes.clone();
+        app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(move |_: &str, _: &[u8]| {
+            w.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }));
+        crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
+        assert!(app.discard.is_some());
+        answer_control(&mut app, &ctx, "saveAll").unwrap();
+        assert!(app.discard.is_none());
+        assert_eq!(writes.load(Ordering::SeqCst), 3);
+        assert!(app.session.documents().is_empty());
+    }
+
+    #[test]
+    fn press_a_toggles_apply_to_all_in_close_all() {
+        let mut h = prompt_on(egui::os::OperatingSystem::Windows);
+        assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(false));
+        h.key_press(Key::A);
+        h.run_steps(2);
+        assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(true));
+        h.key_press(Key::A);
+        h.run_steps(2);
+        assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(false));
     }
 }

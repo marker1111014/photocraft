@@ -2975,7 +2975,6 @@ curves	Smooth	平滑
 	In Front	前面
 	Behind	後面
 	Blend	混合
-
 # DDS Options (#1327)
 	DDS Options	DDS 選項
 	Compression	壓縮
@@ -3006,3 +3005,4 @@ curves	Smooth	平滑
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+	Apply to All	套用到全部
