@@ -1,0 +1,64 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag or Version name for the release (e.g. v0.15.1-custom)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Enable Rust caching
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build PhotoCraft release binary
+        run: cargo build --release -p photocraft
+
+      - name: Package Windows executable and zip
+        shell: pwsh
+        run: |
+          $TAG = "${{ inputs.tag_name }}"
+          if (-not $TAG) {
+            $TAG = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "v0.15.1-custom" }
+          }
+          $ZIP_NAME = "photocraft-$TAG-windows-x64.zip"
+          $EXE_NAME = "photocraft-$TAG-windows-x64.exe"
+          Write-Host "Packaging $EXE_NAME and $ZIP_NAME..."
+          Copy-Item target/release/photocraft.exe .\$EXE_NAME
+          Compress-Archive -Path target/release/photocraft.exe -DestinationPath .\$ZIP_NAME -Force
+          Get-Item .\$EXE_NAME, .\$ZIP_NAME | Select-Object Name, Length
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: PhotoCraft ${{ inputs.tag_name || github.ref_name }} (Custom)
+          files: |
+            photocraft-*-windows-x64.zip
+            photocraft-*-windows-x64.exe
+          draft: false
+          prerelease: false
