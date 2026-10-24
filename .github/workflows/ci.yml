@@ -45,7 +45,7 @@ jobs:
   # Format changes must exercise the Windows-only publication barriers (#8034). macOS is tested
   # only by release.yml.
   platforms:
-    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
+    if: github.repository == 'storytold/photocraft' && (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 10
     name: select platforms
     runs-on: ubuntu-latest
