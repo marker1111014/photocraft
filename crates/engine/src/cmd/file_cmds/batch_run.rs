@@ -393,6 +393,7 @@ pub(super) fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         })();
         carried.set(scratch.actions.playback_steps);
         result
+    };
     let r = if use_open {
         match names {
             Some(names) => {
