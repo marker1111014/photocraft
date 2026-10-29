@@ -351,9 +351,17 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             ui.add_space(8.0);
             let mut checked = apply_to_all;
             let check_label = if mac {
-                tl!("Apply to All")
+                tl!("Apply to All").to_string()
             } else {
-                crate::menus::menu_keys::localized(&[tl!("Apply to All")], &["Apply to All"], &[Some('A')]).0.into_iter().next().unwrap_or_else(|| tl!("Apply to All"))
+                crate::menus::menu_keys::localized(
+                    &[tl!("Apply to All").to_string()],
+                    &["Apply to All"],
+                    &[Some('A')],
+                )
+                .0
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| tl!("Apply to All").to_string())
             };
             if ui.checkbox(&mut checked, check_label).changed() {
                 apply_to_all = checked;
