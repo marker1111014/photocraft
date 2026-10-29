@@ -307,15 +307,15 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Each question comes up with its default answer focused, as in Photoshop: the arrow keys then
     // move between the answers and Enter presses the focused one (#6441).
     let focus = p.focused != Some(doc);
-    if let Some(p) = app.discard.as_mut() {
-        p.focused = Some(doc);
-    }
     let show_apply_all = p.docs.len() > 1;
     let mut apply_to_all = p.apply_to_all;
+    if let Some(p_mut) = app.discard.as_mut() {
+        p_mut.focused = Some(doc);
+    }
     if show_apply_all && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::A)) {
         apply_to_all = !apply_to_all;
-        if let Some(p) = app.discard.as_mut() {
-            p.apply_to_all = apply_to_all;
+        if let Some(p_mut) = app.discard.as_mut() {
+            p_mut.apply_to_all = apply_to_all;
         }
     }
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
