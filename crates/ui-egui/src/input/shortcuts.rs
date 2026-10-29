@@ -477,6 +477,8 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if !added.is_empty() {
         ctx.input_mut(|i| added.iter().for_each(|k| _ = i.keys_down.remove(k)));
     }
+}
+
 /// Document switching keys (Ctrl+Tab / Ctrl+Shift+Tab) are application-level tab switchers.
 /// In Photoshop and modern window managers, they switch documents even when a menu is open,
 /// the menu bar has keyboard focus, or a dropdown is open.
