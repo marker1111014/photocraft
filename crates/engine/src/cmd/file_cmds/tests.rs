@@ -1934,3 +1934,48 @@ fn sanitize_keeps_windows_device_names_off_the_disk() {
         assert_eq!(sanitize(name), name);
     }
 }
+
+#[test]
+fn image_processor_and_batch_process_open_documents() {
+    let dir = tmp("batch-open-docs");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 20, "name": "doc-a.png"})).unwrap();
+    s.execute("file.new", json!({"width": 30, "height": 30, "name": "doc-b.png"})).unwrap();
+    assert_eq!(s.documents().len(), 2);
+
+    let out = join(&dir, "processed");
+    let r = s.execute("file.scripts.imageProcessor", json!({"useOpenDocuments": true, "output": out, "format": "jpg", "width": 20, "height": 20})).unwrap();
+    let files = r["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2, "{r}");
+    assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
+
+    let first = files[0].as_str().unwrap();
+    assert!(first.ends_with("doc-a.jpg"), "expected doc-a.jpg, got {first}");
+    let back = photocraft_io::import("doc-a.jpg", &std::fs::read(first).unwrap()).unwrap().document;
+    assert_eq!((back.size.width, back.size.height), (20, 10));
+
+    let second = files[1].as_str().unwrap();
+    assert!(second.ends_with("doc-b.jpg"), "expected doc-b.jpg, got {second}");
+    let back2 = photocraft_io::import("doc-b.jpg", &std::fs::read(second).unwrap()).unwrap().document;
+    assert_eq!((back2.size.width, back2.size.height), (20, 20));
+
+    // Batch over open documents
+    let batch_out = join(&dir, "batch-out");
+    let br = s
+        .execute(
+            "file.automate.batch",
+            json!({"useOpenDocuments": true, "output": batch_out, "steps": [["image.adjustments.invert", {}]], "format": "png"}),
+        )
+        .unwrap();
+    assert_eq!(br["files"].as_array().unwrap().len(), 2, "{br}");
+    assert!(br["errors"].as_array().unwrap().is_empty(), "{br}");
+    assert!(std::path::Path::new(&join(&batch_out, "doc-a.png")).is_file());
+    assert!(std::path::Path::new(&join(&batch_out, "doc-b.png")).is_file());
+
+    // Graceful errors on empty session and bad params
+    let mut empty_s = Session::new();
+    assert!(empty_s.execute("file.scripts.imageProcessor", json!({"useOpenDocuments": true, "output": out})).is_err());
+    assert!(empty_s.execute("file.automate.batch", json!({"useOpenDocuments": true, "output": batch_out, "steps": []})).is_err());
+    assert!(empty_s.execute("file.scripts.imageProcessor", json!({"useOpenDocuments": "invalid", "output": out})).is_err());
+    assert!(empty_s.execute("file.automate.batch", json!({"useOpenDocuments": "invalid", "output": batch_out, "steps": []})).is_err());
+}

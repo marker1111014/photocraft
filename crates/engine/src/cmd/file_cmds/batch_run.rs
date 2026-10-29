@@ -176,9 +176,14 @@ fn same_format_takes_the_file_names_extension() {
     assert_eq!(same_format("/in/.hidden"), "png");
 }
 
-fn process_outputs<'a>(
+pub(crate) enum BatchItem<'a> {
+    File { path: &'a str, out: String },
+    Doc { name: &'a str, path: Option<&'a str>, doc: &'a Document, out: String },
+}
+
+pub(crate) fn process_items<'a>(
     s: &Session,
-    outputs: impl IntoIterator<Item = (&'a str, String)>,
+    items: impl IntoIterator<Item = BatchItem<'a>>,
     save: SaveOpts,
     f: &dyn Fn(&mut Session, &str) -> Result<bool>,
 ) -> Value {
@@ -187,28 +192,75 @@ fn process_outputs<'a>(
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for (path, out) in outputs {
+    for item in items {
+        let (display_name, out) = match &item {
+            BatchItem::File { path, out } => (*path, out.as_str()),
+            BatchItem::Doc { name, path, out, .. } => (path.unwrap_or(*name), out.as_str()),
+        };
         let r = (|| -> Result<()> {
-            written.check(&out).map_err(EngineError::Other)?;
-            let bytes = read_file(path)?;
+            written.check(out).map_err(EngineError::Other)?;
             let mut scratch = Session::new();
-            let doc = import_at_raw_ppi(raw_ppi, &file_name(path), &bytes)?;
-            scratch.add_document(doc, Some(path.to_string()));
-            if !f(&mut scratch, &out)? {
+            match item {
+                BatchItem::File { path, .. } => {
+                    let bytes = read_file(path)?;
+                    let doc = import_at_raw_ppi(raw_ppi, &file_name(path), &bytes)?;
+                    scratch.add_document(doc, Some(path.to_string()));
+                }
+                BatchItem::Doc { name, path, doc, .. } => {
+                    let mut doc_clone = (*doc).clone();
+                    doc_clone.name = name.to_string();
+                    scratch.add_document(doc_clone, path.map(str::to_string));
+                }
+            }
+            if !f(&mut scratch, out)? {
                 let d = scratch.active().ok_or(EngineError::NoDocument)?;
-                save_doc(&d.doc, &out, save)?;
+                save_doc(&d.doc, out, save)?;
             }
             Ok(())
         })();
         match r {
             Ok(()) => {
-                written.record(&out, path);
-                files.push(out);
+                written.record(out, display_name);
+                files.push(out.to_string());
             }
-            Err(e) => errors.push(json!({"file": path, "error": e.to_string()})),
+            Err(e) => errors.push(json!({"file": display_name, "error": e.to_string()})),
         }
     }
     json!({"files": files, "errors": errors})
+}
+
+pub(crate) fn process_outputs<'a>(
+    s: &Session,
+    outputs: impl IntoIterator<Item = (&'a str, String)>,
+    save: SaveOpts,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
+    process_items(s, outputs.into_iter().map(|(path, out)| BatchItem::File { path, out }), save, f)
+}
+
+pub(crate) fn process_open_docs(
+    s: &Session,
+    output: &str,
+    format: &str,
+    save: SaveOpts,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
+    let items = s.documents().iter().map(|d| {
+        let name = &d.doc.name;
+        let ext = if format == "same" {
+            same_format(d.path.as_deref().unwrap_or(name))
+        } else {
+            format.trim_start_matches('.').to_ascii_lowercase()
+        };
+        let out = join(output, &format!("{}.{ext}", stem(name)));
+        BatchItem::Doc {
+            name,
+            path: d.path.as_deref(),
+            doc: &d.doc,
+            out,
+        }
+    });
+    process_items(s, items, save, f)
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
@@ -255,7 +307,19 @@ pub(super) fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }
     let output = str_param(p, "output", cmd)?.to_string();
-    let inputs = batch_inputs_tree(p, cmd, &output)?;
+    let use_open = match p.get("useOpenDocuments") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
+    };
+    let inputs = if use_open {
+        if s.documents().is_empty() {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: "no open documents to process".into() });
+        }
+        s.documents().iter().map(|d| BatchInput { path: d.doc.name.clone(), rel_dir: String::new() }).collect()
+    } else {
+        batch_inputs_tree(p, cmd, &output)?
+    };
     let format = p.get("format").and_then(Value::as_str).unwrap_or("same").to_string();
     // Steps that call another action play it from the caller's actions; the playback stack comes
     // along so an action that batches itself is caught as a recursive call.
@@ -329,10 +393,24 @@ pub(super) fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         })();
         carried.set(scratch.actions.playback_steps);
         result
-    };
-    let r = match names {
-        Some(names) => process_outputs(s, inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
-        None => process_tree(s, &inputs, &output, &format, save, "", &run),
+    let r = if use_open {
+        match names {
+            Some(names) => {
+                let items = s.documents().iter().zip(names).map(|(d, out)| BatchItem::Doc {
+                    name: &d.doc.name,
+                    path: d.path.as_deref(),
+                    doc: &d.doc,
+                    out,
+                });
+                process_items(s, items, save, &run)
+            }
+            None => process_open_docs(s, &output, &format, save, &run),
+        }
+    } else {
+        match names {
+            Some(names) => process_outputs(s, inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
+            None => process_tree(s, &inputs, &output, &format, save, "", &run),
+        }
     };
     if s.actions.playing > 0 {
         s.actions.playback_steps = carried.get();

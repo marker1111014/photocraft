@@ -223,18 +223,24 @@ fn drawn_order<'a>(h: &Prompted, labels: [&'a str; 3]) -> Vec<&'a str> {
     v.into_iter().map(|(_, l)| l).collect()
 }
 
-/// Tab walks `labels` left to right from the focused default answer, `labels[default]`, and
-/// wraps; Shift+Tab steps back.
-fn tab_walks(h: &mut Prompted, labels: [&str; 3], default: usize) {
-    assert_eq!(focused(h, &labels), Some(labels[default]));
-    for step in 1..=3 {
+/// Tab walks the dialog controls from the focused default answer, and wraps; Shift+Tab steps back.
+fn tab_walks(h: &mut Prompted, buttons: [&str; 3], default: usize) {
+    assert_eq!(focused(h, &buttons), Some(buttons[default]));
+    let cycle = if default == 0 {
+        vec![buttons[1], buttons[2], "Apply to All", buttons[0]]
+    } else {
+        vec!["Apply to All", buttons[0], buttons[1], buttons[2]]
+    };
+    let all = [buttons[0], buttons[1], buttons[2], "Apply to All"];
+    for expected in &cycle {
         h.key_press(Key::Tab);
         h.run_steps(2);
-        assert_eq!(focused(h, &labels), Some(labels[(default + step) % 3]));
+        assert_eq!(focused(h, &all), Some(*expected));
     }
     h.key_press_modifiers(egui::Modifiers::SHIFT, Key::Tab);
     h.run_steps(2);
-    assert_eq!(focused(h, &labels), Some(labels[(default + 2) % 3]));
+    let prev = cycle[cycle.len() - 2];
+    assert_eq!(focused(h, &all), Some(prev));
 }
 
 fn docs_left(h: &Prompted) -> Option<usize> {
@@ -696,4 +702,58 @@ fn leaving_runs_the_platform_quit_instead_of_closing_the_window() {
     app.allow_close = true;
     assert!(cancels_only(&window_close_commands(&mut app)));
     assert_eq!(quits.get(), 2);
+}
+
+#[test]
+fn close_all_with_apply_to_all_no_discards_all_documents_immediately() {
+    let mut app = app_with_docs(3);
+    let ctx = egui::Context::default();
+    make_dirty(&mut app, 0);
+    make_dirty(&mut app, 1);
+    make_dirty(&mut app, 2);
+    crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
+    assert!(app.discard.is_some());
+    assert_eq!(app.discard.as_ref().unwrap().docs.len(), 3);
+    // Answering dontSave with apply_to_all closes all documents
+    answer_control(&mut app, &ctx, "dontSaveAll").unwrap();
+    assert!(app.discard.is_none());
+    assert!(app.session.documents().is_empty());
+}
+
+#[test]
+fn close_all_with_apply_to_all_save_saves_and_closes_all() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let mut app = app_with_docs(3);
+    let ctx = egui::Context::default();
+    for i in 0..3 {
+        app.session.set_active(i);
+        make_dirty(&mut app, i);
+        app.session.active_mut().unwrap().path = Some(format!("/tmp/doc{i}.psd"));
+    }
+    let writes = Arc::new(AtomicUsize::new(0));
+    let w = writes.clone();
+    app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+    app.services.write = Some(Box::new(move |_: &str, _: &[u8]| {
+        w.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }));
+    crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
+    assert!(app.discard.is_some());
+    answer_control(&mut app, &ctx, "saveAll").unwrap();
+    assert!(app.discard.is_none());
+    assert_eq!(writes.load(Ordering::SeqCst), 3);
+    assert!(app.session.documents().is_empty());
+}
+
+#[test]
+fn press_a_toggles_apply_to_all_in_close_all() {
+    let mut h = prompt_on(egui::os::OperatingSystem::Windows);
+    assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(false));
+    h.key_press(Key::A);
+    h.run_steps(2);
+    assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(true));
+    h.key_press(Key::A);
+    h.run_steps(2);
+    assert_eq!(h.state().discard.as_ref().map(|p| p.apply_to_all), Some(false));
 }

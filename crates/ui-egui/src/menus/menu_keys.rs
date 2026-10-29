@@ -99,6 +99,17 @@ fn is_command_key(key: Key, mods: Modifiers) -> bool {
     mods.command || mods.ctrl || mods.mac_cmd || function_key
 }
 
+/// Clear menu bar keyboard focus and underlines.
+pub fn clear(ctx: &egui::Context) {
+    let mut keys = Keys::load(ctx);
+    keys.focus = None;
+    keys.underline = false;
+    keys.alt_down = false;
+    keys.alt_tap = false;
+    keys.first_row = false;
+    keys.store(ctx);
+}
+
 /// The mnemonic a key press stands for: the letter or digit of a plain key.
 fn key_char(key: Key) -> Option<char> {
     let name = key.name();

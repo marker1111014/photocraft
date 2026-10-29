@@ -23,6 +23,10 @@ pub struct Prompt {
     docs: Vec<DocId>,
     /// The document whose question has already put keyboard focus on its default answer.
     focused: Option<DocId>,
+    /// When closing multiple documents, whether to apply the answer (Save or Don't Save) to all remaining documents.
+    pub apply_to_all: bool,
+    /// Automatically answered choice if apply_to_all was chosen.
+    pub auto_answer: Option<Answer>,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -79,7 +83,7 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
         log::warn!("quitting a window that lost its GPU device before its unsaved work could be saved for recovery");
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, focused: None };
+    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, focused: None, apply_to_all: false, auto_answer: None };
     match &app.discard {
         None => ask(app, prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -248,6 +252,22 @@ pub(crate) fn saved_document(app: &mut PhotocraftApp, ctx: &egui::Context, doc: 
         && index_of(app, doc).is_some_and(|i| app.services.write_unconfirmed || !app.session.documents()[i].is_dirty())
     {
         advance(app, ctx);
+        // Continue auto-saving if apply_to_all was active
+        if let Some(p) = &app.discard
+            && p.apply_to_all
+            && p.auto_answer == Some(Answer::Save)
+        {
+            while let Some(&next_doc) = app.discard.as_ref().and_then(|p| p.docs.first()) {
+                if save(app, ctx, next_doc) {
+                    advance(app, ctx);
+                    if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -290,6 +310,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if let Some(p) = app.discard.as_mut() {
         p.focused = Some(doc);
     }
+    let show_apply_all = p.docs.len() > 1;
+    let mut apply_to_all = p.apply_to_all;
+    if show_apply_all && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::A)) {
+        apply_to_all = !apply_to_all;
+        if let Some(p) = app.discard.as_mut() {
+            p.apply_to_all = apply_to_all;
+        }
+    }
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and
     // Linux) ask Yes / No / Cancel with Y, N and Esc, as Photoshop does there; macOS asks
@@ -319,6 +347,21 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         crate::widgets::hairline(ui);
         ui.add_space(8.0);
         ui.label(message);
+        if show_apply_all {
+            ui.add_space(8.0);
+            let mut checked = apply_to_all;
+            let check_label = if mac {
+                tl!("Apply to All")
+            } else {
+                crate::menus::menu_keys::localized(&[tl!("Apply to All")], &["Apply to All"], &[Some('A')]).0.into_iter().next().unwrap_or_else(|| tl!("Apply to All"))
+            };
+            if ui.checkbox(&mut checked, check_label).changed() {
+                apply_to_all = checked;
+                if let Some(p) = app.discard.as_mut() {
+                    p.apply_to_all = checked;
+                }
+            }
+        }
         ui.add_space(12.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
@@ -341,11 +384,47 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// Acts on the answer about `doc`, the document the prompt is asking about.
 fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answer) {
+    let apply_all = app.discard.as_ref().is_some_and(|p| p.apply_to_all);
+    if apply_all {
+        if let Some(p) = app.discard.as_mut() {
+            p.auto_answer = Some(answer);
+        }
+    }
     match answer {
         Answer::Cancel => app.discard = None,
-        Answer::Discard => advance(app, ctx),
-        Answer::Save if save(app, ctx, doc) => advance(app, ctx),
-        Answer::Save => {}
+        Answer::Discard => {
+            advance(app, ctx);
+            if apply_all {
+                while let Some(_d) = app.discard.as_ref().and_then(|p| p.docs.first().copied()) {
+                    advance(app, ctx);
+                    if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                        break;
+                    }
+                }
+            }
+        }
+        Answer::Save => {
+            if save(app, ctx, doc) {
+                advance(app, ctx);
+                if apply_all {
+                    while let Some(&next_doc) = app.discard.as_ref().and_then(|p| p.docs.first()) {
+                        if save(app, ctx, next_doc) {
+                            advance(app, ctx);
+                            if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
+                                break;
+                            }
+                        } else {
+                            if !app.file_dialog_open() && !app.saving() && !app.save_options_open()
+                                && let Some(p) = app.discard.as_mut()
+                            {
+                                p.auto_answer = None;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -360,12 +439,19 @@ pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
     let doc = *p.docs.first()?;
     let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
     let reverts = p.id == "file.revert";
-    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel"], "save") };
+    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel", "saveAll", "dontSaveAll"], "save") };
     Some(json!({
         "id": CONTROL_ID,
         "kind": "unsavedChanges",
         "title": if reverts { "Revert" } else { "Unsaved changes" },
-        "fields": {"command": p.id, "document": name, "remaining": p.docs.len(), "choices": choices, "default": default},
+        "fields": {
+            "command": p.id,
+            "document": name,
+            "remaining": p.docs.len(),
+            "choices": choices,
+            "default": default,
+            "applyToAll": p.apply_to_all,
+        },
     }))
 }
 
@@ -385,21 +471,28 @@ pub fn answer_control(app: &mut PhotocraftApp, ctx: &egui::Context, choice: &str
         return Err("the unsaved-changes prompt is waiting for a save to finish".into());
     }
     let reverts = app.discard.as_ref().is_some_and(|p| p.id == "file.revert");
-    let answer = match choice {
-        "save" if !reverts => Answer::Save,
-        "dontSave" => Answer::Discard,
-        "cancel" => Answer::Cancel,
+    let (answer, apply_to_all) = match choice {
+        "save" if !reverts => (Answer::Save, false),
+        "saveAll" if !reverts => (Answer::Save, true),
+        "dontSave" => (Answer::Discard, false),
+        "dontSaveAll" => (Answer::Discard, true),
+        "cancel" => (Answer::Cancel, false),
         other => {
-            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave or cancel" };
+            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave, saveAll, dontSaveAll or cancel" };
             return Err(format!("unknown choice `{other}`: {choices}"));
         }
     };
+    if apply_to_all
+        && let Some(p) = app.discard.as_mut()
+    {
+        p.apply_to_all = true;
+    }
     apply(app, ctx, doc, answer);
     Ok(json!({"open": app.discard.is_some(), "fileDialog": app.file_dialog_open()}))
 }
 
-#[derive(Clone, Copy)]
-enum Answer {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Answer {
     Save,
     Discard,
     Cancel,

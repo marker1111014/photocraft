@@ -1,4 +1,4 @@
-use super::batch_run::{batch_inputs_tree, process_tree};
+use super::batch_run::{batch_inputs_tree, process_open_docs, process_tree};
 use super::open::import_opened;
 use super::paths::{file_name, list_images, read_file, stem};
 use super::save::SaveOpts;
@@ -87,14 +87,19 @@ pub(super) fn parse_steps(v: &Value) -> Result<Vec<(String, Value)>> {
 pub(super) fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
     let output = str_param(p, "output", cmd)?.to_string();
-    let inputs = batch_inputs_tree(p, cmd, &output)?;
+    let use_open = match p.get("useOpenDocuments") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
+    };
     let format = p.get("format").and_then(Value::as_str).unwrap_or("jpg").to_string();
     let fit = match (size_param(p, "width"), size_param(p, "height")) {
         (None, None) => None,
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_tree(s, &inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch, _| {
+    let save = SaveOpts::from_params(s, p, cmd)?.or_quality(8.0);
+    let run = |scratch: &mut Session, _out: &str| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
@@ -102,8 +107,17 @@ pub(super) fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
             fit_image(scratch, fp)?;
         }
         Ok(false)
-    });
-    Ok(r)
+    };
+    if use_open {
+        if s.documents().is_empty() {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: "no open documents to process".into() });
+        }
+        Ok(process_open_docs(s, &output, &format, save, &run))
+    } else {
+        let inputs = batch_inputs_tree(p, cmd, &output)?;
+        let r = process_tree(s, &inputs, &output, &format, save, "", &run);
+        Ok(r)
+    }
 }
 
 pub(super) fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
