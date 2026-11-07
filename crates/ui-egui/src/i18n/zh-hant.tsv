@@ -2920,6 +2920,7 @@ curves	Smooth	平滑
 	Transparent (default)	透明（預設）
 	Content-Aware Fill	內容感知填滿
 	Include All Subfolders	包含所有子資料夾
+	Process Open Images	使用開啟的影像
 	Auto Add/Delete	自動增加/刪除
 	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	請勿同時勾選列印設定中的鏡像：兩次翻轉會互相抵消。
 	Print Settings…	列印設定…
@@ -3246,3 +3247,4 @@ smartSvg	AI/PDF/EPS contents will be edited as SVG. Saving replaces the embedded
 	Pick a different document for each channel.	請為每個色版選擇不同的文件。
 	A picked document is no longer open.	所選的一個文件已不再開啟。
 	A picked document is no longer a grayscale document of the same size.	所選的一個文件已不再是相同大小的灰階文件。
+	Apply to All	套用到全部

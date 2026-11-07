@@ -596,6 +596,48 @@ impl OutputClaims {
     }
 }
 
+pub(super) fn process_open_docs(
+    s: &Session,
+    output: &str,
+    format: &str,
+    save: SaveOpts,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    let mut written = OutputClaims::default();
+    for d in s.documents() {
+        let name = &d.doc.name;
+        let ext = if format == "same" {
+            same_format(d.path.as_deref().unwrap_or(name))
+        } else {
+            format.trim_start_matches('.').to_ascii_lowercase()
+        };
+        let out = join(output, &format!("{}.{ext}", stem(name)));
+        let display_name = d.path.as_deref().unwrap_or(name);
+        let r = (|| -> Result<()> {
+            written.check(&out).map_err(EngineError::Other)?;
+            let mut scratch = Session::new();
+            let mut doc_clone = (*d.doc).clone();
+            doc_clone.name = name.to_string();
+            scratch.add_document(doc_clone, d.path.clone());
+            if !f(&mut scratch, &out)? {
+                let d = scratch.active().ok_or(EngineError::NoDocument)?;
+                save_doc_as(&d.doc, &out, &ext, save)?;
+            }
+            Ok(())
+        })();
+        match r {
+            Ok(()) => {
+                written.record(&out, display_name);
+                files.push(out);
+            }
+            Err(e) => errors.push(json!({"file": display_name, "error": e.to_string()})),
+        }
+    }
+    json!({"files": files, "errors": errors})
+}
+
 /// A recorded Save, Save As or Save a Copy, which marks the result Batch writes to its destination
 /// (Photoshop's "Override Action 'Save As' Commands").
 pub(crate) fn batch_save_point(id: &str) -> bool {
@@ -672,8 +714,13 @@ pub(super) fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "includeNonImages must be a boolean".into() }),
     };
     let policy = BatchPolicy::parse(p, cmd)?;
+    let use_open = match p.get("useOpenDocuments") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
+    };
     let source = match p.get("source") {
-        None | Some(Value::Null) => "folder",
+        None | Some(Value::Null) => if use_open { "open" } else { "folder" },
         Some(Value::String(value)) if matches!(value.as_str(), "folder" | "open") => value.as_str(),
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "source must be folder or open".into() }),
     };
@@ -1071,7 +1118,13 @@ fn batch_open_documents(
         .documents()
         .iter()
         .map(|state| {
-            let path = state.path.clone().unwrap_or_else(|| format!("{}.psd", state.doc.name));
+            let path = state.path.clone().unwrap_or_else(|| {
+                if extension(&state.doc.name).is_none() {
+                    format!("{}.psd", state.doc.name)
+                } else {
+                    state.doc.name.clone()
+                }
+            });
             (state.doc.id.0, state.doc.name.clone(), path)
         })
         .collect();

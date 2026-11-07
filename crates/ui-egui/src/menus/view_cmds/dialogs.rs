@@ -74,9 +74,12 @@ pub(super) fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: 
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
-/// The Batch and Image Processor dialogs' "Include All Subfolders" checkbox reads as Photoshop's.
-fn subfolders_label() -> Value {
-    json!({"includeSubfolders": tl!("Include All Subfolders")})
+/// The Batch and Image Processor dialogs' labels.
+fn batch_labels() -> Value {
+    json!({
+        "useOpenDocuments": tl!("Process Open Images"),
+        "includeSubfolders": tl!("Include All Subfolders"),
+    })
 }
 
 /// Alt+Cancel (Reset): restore the `__form` params captured at open.
@@ -150,8 +153,16 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         }
         labels.get(k).and_then(Value::as_str).map_or_else(|| label_of(k), str::to_string)
     };
-    let keys = form_keys(f);
+    let mut keys = form_keys(f);
     let mut browse: Option<String> = None;
+    if let (Some(open_idx), Some(input_idx)) = (keys.iter().position(|k| k == "useOpenDocuments"), keys.iter().position(|k| k == "input"))
+        && open_idx > input_idx
+    {
+        let k = keys.remove(open_idx);
+        keys.insert(input_idx, k);
+    }
+    let use_open = f.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false)
+        || f.get("source").and_then(Value::as_str) == Some("open");
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
@@ -183,16 +194,17 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 ui.end_row();
                 continue;
             }
+            let disabled = use_open && (k == "input" || k == "includeSubfolders");
             let new = match &v {
                 Value::Array(_) | Value::Object(_) | Value::Null => continue,
                 Value::Bool(b) => {
                     ui.label("");
                     let mut b = *b;
-                    ui.checkbox(&mut b, label(&k));
+                    ui.add_enabled(!disabled, egui::Checkbox::new(&mut b, label(&k)));
                     json!(b)
                 }
                 Value::String(s) => {
-                    ui.label(label(&k));
+                    ui.add_enabled(!disabled, egui::Label::new(label(&k)));
                     let mut s = s.clone();
                     match choices.get(&k).and_then(Value::as_array) {
                         Some(opts) => {
@@ -202,11 +214,13 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                             let opts: Vec<(String, String)> =
                                 opts.iter().filter_map(Value::as_str).map(|o| (o.to_string(), if action_names { o.to_string() } else { label(o) })).collect();
                             let refs: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
-                            if action_names {
-                                crate::widgets::dropdown_literal(ui, &format!("form-{k}"), &label(&k), &mut s, &refs, 200.0);
-                            } else {
-                                crate::widgets::dropdown(ui, &format!("form-{k}"), &label(&k), &mut s, &refs, 200.0);
-                            }
+                            ui.add_enabled_ui(!disabled, |ui| {
+                                if action_names {
+                                    crate::widgets::dropdown_literal(ui, &format!("form-{k}"), &label(&k), &mut s, &refs, 200.0);
+                                } else {
+                                    crate::widgets::dropdown(ui, &format!("form-{k}"), &label(&k), &mut s, &refs, 200.0);
+                                }
+                            });
                         }
                         None => {
                             if file_info && matches!(k.as_str(), "description" | "keywords" | "copyright") {
@@ -217,12 +231,14 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                                     }
                                 });
                             } else {
-                                ui.horizontal(|ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut s).desired_width(260.0)).accessible_name(label(&k));
-                                    // A folder field gets the system folder picker (#7942, #9357).
-                                    if crate::dialogs::is_folder_field(&k) && crate::widgets::secondary_button(ui, tl!("Browse…"), 0.0).clicked() {
-                                        browse = Some(k.clone());
-                                    }
+                                ui.add_enabled_ui(!disabled, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::TextEdit::singleline(&mut s).desired_width(260.0)).accessible_name(label(&k));
+                                        // A folder field gets the system folder picker (#7942, #9357).
+                                        if crate::dialogs::is_folder_field(&k) && crate::widgets::secondary_button(ui, tl!("Browse…"), 0.0).clicked() {
+                                            browse = Some(k.clone());
+                                        }
+                                    });
                                 });
                             }
                         }
@@ -546,7 +562,7 @@ pub(super) fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, para
         ),
         "file.scripts.imageProcessor" => dialog(
             app,
-            json!({"input": dir, "includeSubfolders": false, "__labels": subfolders_label(), "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
+            json!({"useOpenDocuments": false, "input": dir, "includeSubfolders": false, "__labels": batch_labels(), "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
             json!({"format": ["jpg", "png", "psd", "tiff", "webp"]}),
         ),
         "file.automate.batch" => {
@@ -557,7 +573,7 @@ pub(super) fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, para
             let (names, sets) = crate::actions::action_form_choices(app);
             let mut fields = json!({
                 "action": name, "source": "folder", "input": dir,
-                "includeSubfolders": false, "__labels": subfolders_label(),
+                "includeSubfolders": false, "__labels": batch_labels(),
                 "output": format!("{dir}/batch"), "format": "same", "quality": null,
                 "__batchQuality": 8, "naming": "", "startingSerial": 1,
                 "stopOnError": false, "errorLog": "",

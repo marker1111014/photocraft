@@ -20,6 +20,11 @@ pub fn list_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<u64>(open_id())).is_some_and(|seen| seen.saturating_add(2) >= pass)
 }
 
+/// Clear dropdown list open state.
+pub fn clear(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<u64>(open_id()));
+}
+
 /// The keys of the open list of dropdown `id`, called while drawing the list, before its rows:
 /// the index of the option this frame's typing picks (its text events are consumed), if any. ↩
 /// closes the list. `current` is the option the list now shows; `labels` are as displayed.

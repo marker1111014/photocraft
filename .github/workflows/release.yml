@@ -21,11 +21,13 @@ concurrency:
 jobs:
   # Regenerates contributors/contributors.json for the release commit; every build bundles it.
   credits:
+    if: github.repository == 'storytold/photocraft'
     permissions:
       contents: read
       pull-requests: read
     uses: storytold/craft-common-actions/.github/workflows/refresh-contributors.yml@main
   release:
+    if: github.repository == 'storytold/photocraft'
     needs: credits
     # Intentionally tracked at @main (not SHA-pinned) so org-wide CI improvements, security fixes, and build optimizations propagate without PR churn across all craftapp repos.
     uses: storytold/craft-common-actions/.github/workflows/release.yml@main
