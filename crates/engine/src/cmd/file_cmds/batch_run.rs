@@ -596,23 +596,13 @@ impl OutputClaims {
     }
 }
 
-pub(super) fn process_open_docs(
-    s: &Session,
-    output: &str,
-    format: &str,
-    save: SaveOpts,
-    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
-) -> Value {
+pub(super) fn process_open_docs(s: &Session, output: &str, format: &str, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
     for d in s.documents() {
         let name = &d.doc.name;
-        let ext = if format == "same" {
-            same_format(d.path.as_deref().unwrap_or(name))
-        } else {
-            format.trim_start_matches('.').to_ascii_lowercase()
-        };
+        let ext = if format == "same" { same_format(d.path.as_deref().unwrap_or(name)) } else { format.trim_start_matches('.').to_ascii_lowercase() };
         let out = join(output, &format!("{}.{ext}", stem(name)));
         let display_name = d.path.as_deref().unwrap_or(name);
         let r = (|| -> Result<()> {
@@ -720,7 +710,13 @@ pub(super) fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"useOpenDocuments\" must be true or false".into() }),
     };
     let source = match p.get("source") {
-        None | Some(Value::Null) => if use_open { "open" } else { "folder" },
+        None | Some(Value::Null) => {
+            if use_open {
+                "open"
+            } else {
+                "folder"
+            }
+        }
         Some(Value::String(value)) if matches!(value.as_str(), "folder" | "open") => value.as_str(),
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "source must be folder or open".into() }),
     };
@@ -1118,13 +1114,10 @@ fn batch_open_documents(
         .documents()
         .iter()
         .map(|state| {
-            let path = state.path.clone().unwrap_or_else(|| {
-                if extension(&state.doc.name).is_none() {
-                    format!("{}.psd", state.doc.name)
-                } else {
-                    state.doc.name.clone()
-                }
-            });
+            let path = state
+                .path
+                .clone()
+                .unwrap_or_else(|| if extension(&state.doc.name).is_none() { format!("{}.psd", state.doc.name) } else { state.doc.name.clone() });
             (state.doc.id.0, state.doc.name.clone(), path)
         })
         .collect();

@@ -353,15 +353,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let check_label = if mac {
                 tl!("Apply to All").to_string()
             } else {
-                crate::menus::menu_keys::localized(
-                    &[tl!("Apply to All").to_string()],
-                    &["Apply to All"],
-                    &[Some('A')],
-                )
-                .0
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| tl!("Apply to All").to_string())
+                crate::menus::menu_keys::localized(&[tl!("Apply to All").to_string()], &["Apply to All"], &[Some('A')])
+                    .0
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| tl!("Apply to All").to_string())
             };
             if ui.checkbox(&mut checked, check_label).changed() {
                 apply_to_all = checked;
@@ -422,7 +418,9 @@ fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answe
                                 break;
                             }
                         } else {
-                            if !app.file_dialog_open() && !app.saving() && !app.save_options_open()
+                            if !app.file_dialog_open()
+                                && !app.saving()
+                                && !app.save_options_open()
                                 && let Some(p) = app.discard.as_mut()
                             {
                                 p.auto_answer = None;
@@ -447,7 +445,8 @@ pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
     let doc = *p.docs.first()?;
     let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
     let reverts = p.id == "file.revert";
-    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel", "saveAll", "dontSaveAll"], "save") };
+    let (choices, default): (&[&str], _) =
+        if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel", "saveAll", "dontSaveAll"], "save") };
     Some(json!({
         "id": CONTROL_ID,
         "kind": "unsavedChanges",
@@ -490,9 +489,7 @@ pub fn answer_control(app: &mut PhotocraftApp, ctx: &egui::Context, choice: &str
             return Err(format!("unknown choice `{other}`: {choices}"));
         }
     };
-    if apply_to_all
-        && let Some(p) = app.discard.as_mut()
-    {
+    if apply_to_all && let Some(p) = app.discard.as_mut() {
         p.apply_to_all = true;
     }
     apply(app, ctx, doc, answer);

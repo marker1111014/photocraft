@@ -226,11 +226,7 @@ fn drawn_order<'a>(h: &Prompted, labels: [&'a str; 3]) -> Vec<&'a str> {
 /// Tab walks the dialog controls from the focused default answer, and wraps; Shift+Tab steps back.
 fn tab_walks(h: &mut Prompted, buttons: [&str; 3], default: usize) {
     assert_eq!(focused(h, &buttons), Some(buttons[default]));
-    let cycle = if default == 0 {
-        vec![buttons[1], buttons[2], "Apply to All", buttons[0]]
-    } else {
-        vec!["Apply to All", buttons[0], buttons[1], buttons[2]]
-    };
+    let cycle = if default == 0 { vec![buttons[1], buttons[2], "Apply to All", buttons[0]] } else { vec!["Apply to All", buttons[0], buttons[1], buttons[2]] };
     let all = [buttons[0], buttons[1], buttons[2], "Apply to All"];
     for expected in &cycle {
         h.key_press(Key::Tab);
@@ -725,8 +721,8 @@ fn close_all_with_apply_to_all_no_discards_all_documents_immediately() {
 
 #[test]
 fn close_all_with_apply_to_all_save_saves_and_closes_all() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     let mut app = app_with_docs(3);
     let ctx = egui::Context::default();
     for i in 0..3 {

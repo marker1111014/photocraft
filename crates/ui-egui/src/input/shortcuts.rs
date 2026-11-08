@@ -483,14 +483,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
 /// In Photoshop and modern window managers, they switch documents even when a menu is open,
 /// the menu bar has keyboard focus, or a dropdown is open.
 fn switch_document_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
-    const COMMANDS: [(&str, &str); 2] = [
-        ("window.nextDocument", "Ctrl+Tab"),
-        ("window.previousDocument", "Ctrl+Shift+Tab"),
-    ];
+    const COMMANDS: [(&str, &str); 2] = [("window.nextDocument", "Ctrl+Tab"), ("window.previousDocument", "Ctrl+Shift+Tab")];
     for (id, default_sc) in COMMANDS {
         let main = effective_shortcut(app, id, Some(default_sc));
-        let keys: Vec<KeyboardShortcut> =
-            main.into_iter().chain(effective_alternates(app, id)).filter_map(|k| parse(&k)).collect();
+        let keys: Vec<KeyboardShortcut> = main.into_iter().chain(effective_alternates(app, id)).filter_map(|k| parse(&k)).collect();
         if keys.iter().any(|sc| consume(ctx, sc)) {
             ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
             egui::Popup::close_all(ctx);

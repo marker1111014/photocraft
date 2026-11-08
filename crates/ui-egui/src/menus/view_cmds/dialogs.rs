@@ -161,8 +161,7 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         let k = keys.remove(open_idx);
         keys.insert(input_idx, k);
     }
-    let use_open = f.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false)
-        || f.get("source").and_then(Value::as_str) == Some("open");
+    let use_open = f.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false) || f.get("source").and_then(Value::as_str) == Some("open");
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);

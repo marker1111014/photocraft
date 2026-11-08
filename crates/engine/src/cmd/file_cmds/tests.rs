@@ -4353,10 +4353,7 @@ fn image_processor_and_batch_process_open_documents() {
     // Batch over open documents
     let batch_out = join(&dir, "batch-out");
     let br = s
-        .execute(
-            "file.automate.batch",
-            json!({"useOpenDocuments": true, "output": batch_out, "steps": [["image.adjustments.invert", {}]], "format": "png"}),
-        )
+        .execute("file.automate.batch", json!({"useOpenDocuments": true, "output": batch_out, "steps": [["image.adjustments.invert", {}]], "format": "png"}))
         .unwrap();
     assert_eq!(br["files"].as_array().unwrap().len(), 2, "{br}");
     assert!(br["errors"].as_array().unwrap().is_empty(), "{br}");
