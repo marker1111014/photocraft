@@ -493,9 +493,7 @@ fn switch_document_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
             crate::menu_nav::clear(ctx);
             crate::menu_keys::clear(ctx);
             crate::widgets::dropdown_list_clear(ctx);
-            if crate::menus::is_enabled(app, id) {
-                let _ = crate::menus::invoke(app, ctx, id, json!({}));
-            }
+            crate::shortcut_dispatch::dispatch(app, ctx, id);
             return true;
         }
     }
