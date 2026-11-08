@@ -389,10 +389,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
 /// Acts on the answer about `doc`, the document the prompt is asking about.
 fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answer) {
     let apply_all = app.discard.as_ref().is_some_and(|p| p.apply_to_all);
-    if apply_all {
-        if let Some(p) = app.discard.as_mut() {
-            p.auto_answer = Some(answer);
-        }
+    if apply_all && let Some(p) = app.discard.as_mut() {
+        p.auto_answer = Some(answer);
     }
     match answer {
         Answer::Cancel => app.discard = None,
