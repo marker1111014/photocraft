@@ -442,6 +442,7 @@ pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
     let p = app.discard.as_ref()?;
     let doc = *p.docs.first()?;
     let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
+    let reverts = p.id == "file.revert";
     let (choices, default): (&[&str], _) = if reverts {
         (&["dontSave", "cancel"], "dontSave")
     } else if p.docs.len() > 1 {
