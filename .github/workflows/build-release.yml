@@ -44,7 +44,7 @@ jobs:
         run: |
           $TAG = "${{ inputs.tag_name }}"
           if (-not $TAG) {
-            $TAG = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "v0.22.0-custom" }
+            $TAG = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "v0.23.1-custom" }
           }
           "tag=$TAG" >> $env:GITHUB_OUTPUT
           $ZIP_NAME = "photocraft-$TAG-windows-x64.zip"
@@ -103,7 +103,7 @@ jobs:
         run: |
           TAG="${{ inputs.tag_name }}"
           if [ -z "$TAG" ]; then
-            TAG="${{ github.ref_type == 'tag' && github.ref_name || 'v0.22.0-custom' }}"
+            TAG="${{ github.ref_type == 'tag' && github.ref_name || 'v0.23.1-custom' }}"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           PHOTOCRAFT_VERSION="$TAG" packaging/linux/package.sh --skip-build --formats "appimage deb tar"

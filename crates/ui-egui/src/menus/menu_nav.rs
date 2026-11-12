@@ -107,12 +107,19 @@ pub fn is_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<u64>(open_id())).is_some_and(|seen| seen + 2 >= pass)
 }
 
-/// Clear open menu navigation state.
-pub fn clear(ctx: &egui::Context) {
+/// Close the open menu now, ahead of this frame's drawing: its popups and the mark [`is_open`]
+/// reads.
+pub fn close(ctx: &egui::Context) {
+    egui::Popup::close_all(ctx);
     ctx.data_mut(|d| {
         d.remove::<u64>(open_id());
         d.remove::<Nav>(nav_id());
     });
+}
+
+/// Clear open menu navigation state.
+pub fn clear(ctx: &egui::Context) {
+    close(ctx);
 }
 
 impl Nav {
