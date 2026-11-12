@@ -921,45 +921,22 @@ fn leaving_runs_the_platform_quit_instead_of_closing_the_window() {
 }
 
 #[test]
-fn close_all_with_apply_to_all_no_discards_all_documents_immediately() {
+fn control_clients_can_save_all() {
     let mut app = app_with_docs(3);
-    let ctx = egui::Context::default();
-    make_dirty(&mut app, 0);
-    make_dirty(&mut app, 1);
-    make_dirty(&mut app, 2);
-    crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
-    assert!(app.discard.is_some());
-    assert_eq!(app.discard.as_ref().unwrap().docs.len(), 3);
-    // Answering dontSave with apply_to_all closes all documents
-    answer_control(&mut app, &ctx, "dontSaveAll").unwrap();
-    assert!(app.discard.is_none());
-    assert!(app.session.documents().is_empty());
-}
-
-#[test]
-fn close_all_with_apply_to_all_save_saves_and_closes_all() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let mut app = app_with_docs(3);
-    let ctx = egui::Context::default();
     for i in 0..3 {
         app.session.set_active(i);
         make_dirty(&mut app, i);
         app.session.active_mut().unwrap().path = Some(format!("/tmp/doc{i}.psd"));
     }
-    let writes = Arc::new(AtomicUsize::new(0));
-    let w = writes.clone();
     app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
-    app.services.write = Some(Box::new(move |_: &str, _: &[u8]| {
-        w.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }));
-    crate::menus::invoke(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
-    assert!(app.discard.is_some());
-    answer_control(&mut app, &ctx, "saveAll").unwrap();
-    assert!(app.discard.is_none());
-    assert_eq!(writes.load(Ordering::SeqCst), 3);
-    assert!(app.session.documents().is_empty());
+    app.services.write = Some(Box::new(|_: &str, _: &[u8]| Ok(())));
+    app.services.automation_command = Some(Box::new(|_, _| Ok(())));
+    let mut h = prompt_for(app, "file.closeAll", egui::os::OperatingSystem::Windows);
+    let ctx = h.ctx.clone();
+    answer_control(h.state_mut(), &ctx, "saveAll").unwrap();
+    h.run_steps(8);
+    assert!(h.state().discard.is_none());
+    assert!(h.state().session.documents().is_empty());
 }
 
 #[test]

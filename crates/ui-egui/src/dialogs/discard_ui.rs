@@ -268,22 +268,6 @@ pub(crate) fn saved_document(app: &mut PhotocraftApp, ctx: &egui::Context, doc: 
         && index_of(app, doc).is_some_and(|i| app.services.write_unconfirmed || !app.session.documents()[i].is_dirty())
     {
         advance(app, ctx);
-        // Continue auto-saving if apply_to_all was active
-        if let Some(p) = &app.discard
-            && p.apply_to_all
-            && p.auto_answer == Some(Answer::Save)
-        {
-            while let Some(&next_doc) = app.discard.as_ref().and_then(|p| p.docs.first()) {
-                if save(app, ctx, next_doc) {
-                    advance(app, ctx);
-                    if app.discard.as_ref().is_none_or(|p| p.docs.is_empty()) {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
     }
 }
 

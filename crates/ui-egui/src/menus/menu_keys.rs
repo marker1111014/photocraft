@@ -174,6 +174,7 @@ pub fn clear(ctx: &egui::Context) {
     keys.alt_tap = false;
     keys.first_row = false;
     keys.store(ctx);
+}
 
 /// A key a focused text field uses with ⌘ / Ctrl: select all, copy, cut, paste, undo and redo
 /// (without Alt, which makes them shortcuts as [`crate::shortcut_dispatch::Focus::allows`] has

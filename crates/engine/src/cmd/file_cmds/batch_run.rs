@@ -286,7 +286,7 @@ pub(super) fn process_document_copies(
         // Export resolves stored links against this source, including non-active documents.
         let _document = crate::doc_path::scope(state.path.as_deref().map(std::path::Path::new));
         // An untitled document's name is a label, not a path: keep it as one portable component.
-        let path = state.path.clone().unwrap_or_else(|| format!("{}.psd", sanitize(&state.doc.name)));
+        let path = state.path.clone().unwrap_or_else(|| format!("{}.psd", stem(&sanitize(&state.doc.name))));
         let ext = if format == "same" { same_format(&path) } else { format.trim_start_matches('.').to_ascii_lowercase() };
         let out = join(output, &format!("{}.{ext}", stem(&path)));
         // Copies must not overwrite any open source file, including aliases of its path.
@@ -654,38 +654,6 @@ impl OutputClaims {
     pub fn record(&mut self, out: &str, input: &str) {
         self.0.insert(Self::key(out), input.to_string());
     }
-}
-
-pub(super) fn process_open_docs(s: &Session, output: &str, format: &str, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
-    let mut files = Vec::new();
-    let mut errors = Vec::new();
-    let mut written = OutputClaims::default();
-    for d in s.documents() {
-        let name = &d.doc.name;
-        let ext = if format == "same" { same_format(d.path.as_deref().unwrap_or(name)) } else { format.trim_start_matches('.').to_ascii_lowercase() };
-        let out = join(output, &format!("{}.{ext}", stem(name)));
-        let display_name = d.path.as_deref().unwrap_or(name);
-        let r = (|| -> Result<()> {
-            written.check(&out).map_err(EngineError::Other)?;
-            let mut scratch = Session::new();
-            let mut doc_clone = (*d.doc).clone();
-            doc_clone.name = name.to_string();
-            scratch.add_document(doc_clone, d.path.clone());
-            if !f(&mut scratch, &out)? {
-                let d = scratch.active().ok_or(EngineError::NoDocument)?;
-                save_doc_as(&d.doc, &out, &ext, save)?;
-            }
-            Ok(())
-        })();
-        match r {
-            Ok(()) => {
-                written.record(&out, display_name);
-                files.push(out);
-            }
-            Err(e) => errors.push(json!({"file": display_name, "error": e.to_string()})),
-        }
-    }
-    json!({"files": files, "errors": errors})
 }
 
 /// A recorded Save, Save As or Save a Copy, which marks the result Batch writes to its destination
